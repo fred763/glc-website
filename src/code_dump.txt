@@ -1,0 +1,2158 @@
+===============================================
+FILE: ./app/api/auction-register/route.js
+===============================================
+
+import nodemailer from "nodemailer";
+import { saveAuctionRegistration } from "@/lib/firebaseService";
+
+export async function POST(req) {
+  try {
+    const formData = await req.json();
+    const { firstName, lastName, phone, email } = formData;
+
+    if (!firstName || !lastName || !phone || !email) {
+      return new Response(JSON.stringify({ success: false, message: "Missing required fields" }), { status: 400 });
+    }
+
+    // Save to Firestore
+    try {
+      const registrationData = {
+        ...formData,
+        submittedAt: new Date().toISOString()
+      };
+      
+      await saveAuctionRegistration(registrationData);
+    } catch (error) {
+      console.error("❌ Error saving to Firestore:", error);
+      // Continue with email sending even if Firestore save fails
+    }
+
+    // ✅ Set up NodeMailer transporter
+    const transporter = nodemailer.createTransport({
+      service: "Gmail",
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    });
+
+    // Format interests for email
+    const interests = formData.interestedIn || [];
+    const interestsHtml = interests.length > 0 
+      ? `<p><strong>Interests:</strong> ${interests.join(', ')}</p>` 
+      : '<p><strong>Interests:</strong> None specified</p>';
+
+    // ✅ Send Confirmation Email to User
+    await transporter.sendMail({
+      from: `"GLC Auctions" <${process.env.SMTP_USER}>`,
+      to: email,
+      subject: "Auction Registration Confirmation - Global Liquidation Company",
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h1 style="color: #cc5803;">Thank You for Registering for GLC Auctions</h1>
+          <p>Dear ${firstName},</p>
+          <p>Thank you for registering for our upcoming auctions. We have added you to our notification list and will keep you informed about future events.</p>
+          <p>Here's a summary of your registration:</p>
+          <ul>
+            <li><strong>Name:</strong> ${firstName} ${lastName}</li>
+            <li><strong>Phone:</strong> ${phone}</li>
+            <li><strong>Email:</strong> ${email}</li>
+            <li><strong>Preferred Contact Method:</strong> ${formData.preferredContact || 'Email'}</li>
+            <li><strong>Interests:</strong> ${interests.length > 0 ? interests.join(', ') : 'None specified'}</li>
+          </ul>
+          <p>If you have any questions or need to update your preferences, please contact us.</p>
+          <p>Best Regards,<br>GLC Auctions Team</p>
+        </div>
+      `,
+    });
+
+    // ✅ Send Notification Email to Internal Recipients
+    await transporter.sendMail({
+      from: `"GLC Auctions" <${process.env.SMTP_USER}>`,
+      to: process.env.INTERNAL_RECIPIENTS,
+      subject: "New Auction Registration",
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h1 style="color: #cc5803;">New Auction Registration</h1>
+          <p><strong>Name:</strong> ${firstName} ${lastName}</p>
+          <p><strong>Email:</strong> ${email}</p>
+          <p><strong>Phone:</strong> ${phone}</p>
+          ${interestsHtml}
+          <p><strong>Preferred Contact:</strong> ${formData.preferredContact || 'Email'}</p>
+          <p><strong>Address:</strong> ${formData.address ? `${formData.address}, ${formData.city || ''}, ${formData.state || ''} ${formData.zipCode || ''}` : 'Not provided'}</p>
+          <p><strong>Additional Information:</strong> ${formData.additionalInfo || 'None provided'}</p>
+        </div>
+      `,
+    });
+
+    return new Response(JSON.stringify({ success: true, message: "Registration submitted successfully!" }), { status: 200 });
+  } catch (error) {
+    console.error("❌ Error Processing Registration:", error);
+    return new Response(JSON.stringify({ success: false, message: "Failed to process your registration." }), { status: 500 });
+  }
+}
+
+===============================================
+FILE: ./app/api/contact/route.js
+===============================================
+
+// src/app/api/contact/route.js
+import nodemailer from "nodemailer";
+import { saveContactForm } from "@/lib/firebaseService";
+
+export async function POST(req) {
+  try {
+    const { firstName, lastName, phone, email, message, attachments } = await req.json();
+
+    if (!firstName || !email) {
+      return new Response(JSON.stringify({ success: false, message: "Missing required fields" }), { status: 400 });
+    }
+
+    // Save to Firestore with attachments info
+    try {
+      const formData = {
+        firstName,
+        lastName,
+        phone,
+        email,
+        message,
+        attachments: attachments || [],
+        submittedAt: new Date().toISOString()
+      };
+      
+      await saveContactForm(formData);
+    } catch (error) {
+      console.error("❌ Error saving to Firestore:", error);
+      // Continue with email sending even if Firestore save fails
+    }
+
+    // ✅ Set up NodeMailer transporter
+    const transporter = nodemailer.createTransport({
+      service: "Gmail",
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    });
+
+    // Format attachments for email
+    let attachmentsHtml = '';
+    if (attachments && attachments.length > 0) {
+      attachmentsHtml = `
+        <h3>Attachments:</h3>
+        <ul>
+          ${attachments.map(file => `
+            <li>
+              <a href="${file.url}" target="_blank">${file.name}</a> 
+              (${file.type.split('/')[1]}, ${(file.size / 1024).toFixed(1)} KB)
+            </li>
+          `).join('')}
+        </ul>
+      `;
+    }
+
+    // ✅ Send Confirmation Email to User
+    await transporter.sendMail({
+      from: `"GLC Support" <${process.env.SMTP_USER}>`,
+      to: email,
+      subject: "Thank You for Contacting GLC",
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h1 style="color: #cc5803;">Thank You for Contacting GLC</h1>
+          <p>Dear ${firstName},</p>
+          <p>Thank you for reaching out. We have received your message and will get back to you soon.</p>
+          <p>Here's a summary of your inquiry:</p>
+          <ul>
+            <li><strong>Name:</strong> ${firstName} ${lastName}</li>
+            <li><strong>Phone:</strong> ${phone}</li>
+            <li><strong>Email:</strong> ${email}</li>
+            ${message ? `<li><strong>Message:</strong> ${message}</li>` : ''}
+            ${attachments && attachments.length > 0 ? `<li><strong>Attachments:</strong> ${attachments.length} file(s)</li>` : ''}
+          </ul>
+          <p>Best Regards,<br>GLC Team</p>
+        </div>
+      `,
+    });
+
+    // ✅ Send Notification Email to Internal Recipients
+    await transporter.sendMail({
+      from: `"GLC Support" <${process.env.SMTP_USER}>`,
+      to: process.env.INTERNAL_RECIPIENTS,
+      subject: "New Contact Form Submission",
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h1 style="color: #cc5803;">New Contact Form Submission</h1>
+          <p><strong>Name:</strong> ${firstName} ${lastName}</p>
+          <p><strong>Email:</strong> ${email}</p>
+          <p><strong>Phone:</strong> ${phone}</p>
+          <p><strong>Message:</strong> ${message || 'No message provided'}</p>
+          ${attachmentsHtml}
+        </div>
+      `,
+    });
+
+    return new Response(JSON.stringify({ success: true, message: "Form submitted successfully!" }), { status: 200 });
+  } catch (error) {
+    console.error("❌ Error Processing Form:", error);
+    return new Response(JSON.stringify({ success: false, message: "Failed to process your request." }), { status: 500 });
+  }
+}
+
+// import nodemailer from "nodemailer";
+
+// export async function POST(req) {
+//   try {
+//     const { firstName, lastName, phone, email, message } = await req.json();
+
+//     if (!firstName || !email || !message) {
+//       return new Response(JSON.stringify({ success: false, message: "Missing required fields" }), { status: 400 });
+//     }
+
+//     // ✅ Set up NodeMailer transporter
+//     const transporter = nodemailer.createTransport({
+//       service: "Gmail",
+//       auth: {
+//         user: process.env.SMTP_USER,
+//         pass: process.env.SMTP_PASS,
+//       },
+//     });
+
+//     // ✅ Send Confirmation Email to User
+//     await transporter.sendMail({
+//       from: `"GLC Support" <${process.env.SMTP_USER}>`,
+//       to: email,
+//       subject: "Thank You for Contacting GLC",
+//       text: `Dear ${firstName},\n\nThank you for reaching out. We have received your message and will get back to you soon.\n\nBest Regards,\nGLC Team`,
+//     });
+
+//     // ✅ Send Notification Email to Internal Recipients
+//     await transporter.sendMail({
+//       from: `"GLC Support" <${process.env.SMTP_USER}>`,
+//       to: process.env.INTERNAL_RECIPIENTS,
+//       subject: "New Contact Form Submission",
+//       text: `New contact form submission:\n\nName: ${firstName} ${lastName}\nEmail: ${email}\nPhone: ${phone}\nMessage: ${message}`,
+//     });
+
+//     return new Response(JSON.stringify({ success: true, message: "Email sent successfully!" }), { status: 200 });
+//   } catch (error) {
+//     console.error("❌ Error Sending Email:", error);
+//     return new Response(JSON.stringify({ success: false, message: "Failed to send email." }), { status: 500 });
+//   }
+// }
+
+
+===============================================
+FILE: ./app/api/subscribe/route.js
+===============================================
+
+// src/app/api/subscribe/route.js
+import nodemailer from "nodemailer";
+import { getFirestore, collection, addDoc } from "firebase/firestore";
+import { getApp } from "firebase/app";
+
+export async function POST(req) {
+  try {
+    const { email, subscriptionType } = await req.json();
+
+    if (!email) {
+      return new Response(JSON.stringify({ success: false, message: "Email is required" }), { status: 400 });
+    }
+
+    // Save to Firestore
+    try {
+      const db = getFirestore(getApp());
+      await addDoc(collection(db, "newsletter_subscribers"), {
+        email,
+        subscriptionType: subscriptionType || 'auctions',
+        subscribedAt: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error("❌ Error saving to Firestore:", error);
+      // Continue with email sending even if Firestore save fails
+    }
+
+    // Set up NodeMailer transporter
+    const transporter = nodemailer.createTransport({
+      service: "Gmail",
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    });
+
+    // Send confirmation email to the subscriber
+    await transporter.sendMail({
+      from: `"GLC Auctions" <${process.env.SMTP_USER}>`,
+      to: email,
+      subject: "Thank You for Subscribing to GLC Auction Updates",
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h1 style="color: #cc5803;">Thank You for Subscribing!</h1>
+          <p>Dear Valued Customer,</p>
+          <p>Thank you for subscribing to Global Liquidation Company's auction updates. You'll now be among the first to hear about our upcoming auctions and exclusive liquidation events.</p>
+          <p>We look forward to sharing our exceptional collection of art, antiques, and rare rugs with you.</p>
+          <p>Best Regards,<br>The GLC Team</p>
+        </div>
+      `,
+    });
+
+    // Send notification email to internal team
+    await transporter.sendMail({
+      from: `"GLC Website" <${process.env.SMTP_USER}>`,
+      to: process.env.INTERNAL_RECIPIENTS,
+      subject: "New Auction Updates Subscriber",
+      text: `New subscriber for auction updates: ${email}`,
+    });
+
+    return new Response(JSON.stringify({ success: true, message: "Subscription successful!" }), { status: 200 });
+  } catch (error) {
+    console.error("❌ Error Processing Subscription:", error);
+    return new Response(JSON.stringify({ success: false, message: "Failed to process your subscription." }), { status: 500 });
+  }
+}
+
+===============================================
+FILE: ./app/blog/[id]/blog.module.css
+===============================================
+
+.blogcss {
+    font-family: 'Arial', sans-serif;
+    color: #333;
+    line-height: 1.6;
+    max-width: 1000px;
+    padding: 20px;
+}
+
+.blogcss h1 {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: #000305;
+}
+
+.blogcss h2 {
+    font-size: 2rem;
+    font-weight: 600;
+    color: #2c3e50;
+    margin-bottom: 1rem;
+}
+
+.blogcss h3 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: #34495e;
+    margin-top: 1.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.blogcss p {
+    font-size: 1.1rem;
+    font-weight: 400;
+    color: #333;
+    margin-bottom: .5rem;
+    letter-spacing: 0.3px;
+    line-height: 1.7;
+}
+
+.blogcss a {
+    color: #216fa7;
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-bottom-color 0.3s ease;
+    /* iframe {
+        width: 100% !important;
+        height: 400px !important;
+        aspect-ratio: 16/9;
+      } */
+}
+
+.blogcss iframe {
+    width: 100% !important;
+    height: 500px !important;
+    aspect-ratio: 16/9;
+    margin: 1rem auto;
+  }
+
+.blogcss a:hover {
+    border-bottom-color: #216fa7;
+}
+
+.blogcss pre {
+    background: #f8f8f8;
+    border: 1px solid #e1e1e1;
+    border-radius: 4px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.9rem;
+    line-height: 1.6;
+    margin-bottom: 1.6rem;
+    overflow: auto;
+    padding: 1.2rem;
+    max-width: 100%;
+}
+
+.blogcss code {
+    background: #f1f1f1;
+    border-radius: 3px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.9em;
+    padding: 2px 4px;
+}
+
+.blogcss ul, .blogcss ol {
+    padding-left: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.blogcss ul li, .blogcss ol li {
+    position: relative;
+    font-size: 1.1rem;
+    font-weight: 400;
+    color: #333;
+    line-height: 1.6;
+    margin-bottom: 0.75rem;
+}
+
+.blogcss ul li::before {
+    content: '•';
+    color: #216fa7;
+    font-weight: bold;
+    display: inline-block;
+    width: 1em;
+    margin-left: -1em;
+}
+
+.blogcss ol {
+    counter-reset: list-counter;
+}
+
+.blogcss ol li {
+    counter-increment: list-counter;
+}
+
+.blogcss ol li::before {
+    content: counter(list-counter) ".";
+    color: #216fa7;
+    font-weight: bold;
+    display: inline-block;
+    width: 1.5em;
+    margin-left: -1.5em;
+}
+
+.blogcss blockquote {
+    background-color: #f9f9f9;
+    border-left: 4px solid #216fa7;
+    margin: 1.5rem 0;
+    padding: 1rem 1.5rem;
+    font-style: italic;
+    color: #555;
+}
+
+.blogcss img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    margin: 1.5rem auto;
+    border-radius: 4px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+/* .blogcss table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 1.5rem;
+}
+
+.blogcss th, .blogcss td {
+    border: 1px solid #e1e1e1;
+    padding: 0.75rem;
+    text-align: left;
+}
+
+.blogcss th {
+    background-color: #f8f8f8;
+    font-weight: 600;
+}
+
+.blogcss tr:nth-child(even) {
+    background-color: #f9f9f9;
+} */
+
+@media (max-width: 768px) {
+    .blogcss {
+        padding: 15px;
+    }
+
+    .blogcss h1 {
+        font-size: 2rem;
+    }
+
+    .blogcss h2 {
+        font-size: 1.75rem;
+    }
+
+    .blogcss h3 {
+        font-size: 1.4rem;
+    }
+
+    .blogcss p, .blogcss ul li, .blogcss ol li {
+        font-size: 1rem;
+    }
+}
+
+===============================================
+FILE: ./app/globals.css
+===============================================
+
+/* Global CSS Variables */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-primary: 204 88 3; /* #cc5803 */
+    --color-black: 199 195 188; /* #c7c3bc */
+    --color-background-dark: 71 71 71; /* #474747 */
+    --color-background-light: 241 241 241; /* #f1f1f1 */
+  }
+
+  /* Apply Google Fonts */
+  .font-dosis {
+    font-family: 'Dosis', sans-serif;
+  }
+
+  .font-playfair {
+    font-family: 'Playfair Display', serif;
+  }
+
+  .font-karla {
+    font-family: 'Karla', sans-serif;
+  }
+}
+
+@layer components {
+  /* Base styles for common elements */
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-playfair;
+  }
+
+  body {
+    @apply font-dosis text-base text-gray-900;
+  }
+}
+
+@layer utilities {
+  .text-heading {
+    @apply font-playfair;
+  }
+
+  .text-body {
+    @apply font-dosis;
+  }
+
+  .text-nav {
+    @apply font-karla font-medium;
+  }
+}
+
+
+===============================================
+FILE: ./app/legal/page.js
+===============================================
+
+"use client"
+
+import React from 'react';
+
+const TermsAndConditions = () => {
+    return (
+        <div className="container mx-auto px-4 py-16 mt-16">
+            <h1 className="font-playfair text-4xl md:text-5xl mb-8">Terms and Conditions</h1>
+            <p className="text-gray-700 mb-4"><strong>Effective Date:</strong> [Insert Date]</p>
+            <p className="text-gray-700 mb-4">
+                These Terms and Conditions govern your use of the services offered by <strong>Global Liquidation Company</strong> (&quot;Company,&quot; &quot;GLC,&quot; &quot;we,&quot; &quot;us,&quot; or &quot;our&quot;) through our website <a href="https://www.globalliquidationcompany.com" className="text-blue-500">https://www.globalliquidationcompany.com</a> (the &quot;Site&quot;) and when you engage with our auction and sales services.
+            </p>
+            <p className="text-gray-700 mb-4">
+                By using our Site or participating in our auctions and sales, you agree to comply with and be bound by these Terms and Conditions.
+            </p>
+
+            <h2 className="font-playfair text-3xl md:text-4xl mb-4">1. General Terms</h2>
+
+            <h3 className="font-playfair text-2xl md:text-3xl mb-2">A. Company Affiliation</h3>
+            <p className="text-gray-700 mb-4">
+                Global Liquidation Company (GLC) is not affiliated with any other store. We operate independently and are not associated with or endorsed by any other retail establishment.
+            </p>
+
+            <h3 className="font-playfair text-2xl md:text-3xl mb-2">B. Business Continuity</h3>
+            <p className="text-gray-700 mb-4">
+                Upon disposal of the goods for sale, GLC and its affiliates will not go out of neither business nor cease, be removed or relocated unless ordered to vacate. Our business operations will continue regardless of inventory liquidation sales.
+            </p>
+
+            <h2 className="font-playfair text-3xl md:text-4xl mb-4">2. Price Guarantees</h2>
+            <p className="text-gray-700 mb-4">
+                We strive to offer competitive pricing on all our merchandise. Our price guarantee is subject to the following conditions:
+            </p>
+            <ul className="list-disc list-inside text-gray-700 mb-4">
+                <li>Must provide proof in writing from any competitor for the identical piece within 48 hours from the purchase date otherwise guarantee won&apos;t apply!</li>
+                <li>Price match requests must be for identical items (same brand, model, size, and condition).</li>
+                <li>Competitor must be an authorized retailer with physical presence in the United States.</li>
+                <li>Online-only retailers may be excluded from our price match policy.</li>
+            </ul>
+
+            <h2 className="font-playfair text-3xl md:text-4xl mb-4">3. Sales and Offers</h2>
+            <p className="text-gray-700 mb-4">
+                Our sales events and promotional offers are subject to the following terms:
+            </p>
+            <ul className="list-disc list-inside text-gray-700 mb-4">
+                <li>Offer not subject to prior sales.</li>
+                <li>All sales are final unless otherwise specified.</li>
+                <li>Discounts cannot be combined with other offers unless explicitly stated.</li>
+                <li>We reserve the right to modify or terminate any promotion at our discretion.</li>
+            </ul>
+
+            <h2 className="font-playfair text-3xl md:text-4xl mb-4">4. Content Accuracy</h2>
+            <p className="text-gray-700 mb-4">
+                We make every effort to ensure the accuracy of information on our website and in our marketing materials:
+            </p>
+            <ul className="list-disc list-inside text-gray-700 mb-4">
+                <li>Not responsible for typographical errors.</li>
+                <li>Images may not always reflect the exact color, size, or condition of actual products.</li>
+                <li>Product descriptions are provided as accurately as possible, but minor variations may occur.</li>
+                <li>We reserve the right to correct any errors or inaccuracies and to change or update information at any time without prior notice.</li>
+            </ul>
+
+            <h2 className="font-playfair text-3xl md:text-4xl mb-4">5. Upcoming Changes</h2>
+            <p className="text-gray-700 mb-4">
+                Stay tuned for exciting news soon. We regularly update our inventory, services, and promotional offers. To receive the latest updates:
+            </p>
+            <ul className="list-disc list-inside text-gray-700 mb-4">
+                <li>Subscribe to our newsletter</li>
+                <li>Follow us on social media</li>
+                <li>Visit our website regularly</li>
+                <li>Contact our customer service for upcoming events and sales</li>
+            </ul>
+
+            <h2 className="font-playfair text-3xl md:text-4xl mb-4">6. Shipping and Delivery</h2>
+            <p className="text-gray-700 mb-4">
+                For purchased items requiring delivery:
+            </p>
+            <ul className="list-disc list-inside text-gray-700 mb-4">
+                <li>Shipping costs and timeframes will be provided at checkout</li>
+                <li>Delivery timeframes are estimates and not guaranteed</li>
+                <li>Customer is responsible for providing accurate shipping information</li>
+                <li>Additional fees may apply for oversized items, remote locations, or expedited shipping</li>
+            </ul>
+
+            <h2 className="font-playfair text-3xl md:text-4xl mb-4">7. Returns and Exchanges</h2>
+            <p className="text-gray-700 mb-4">
+                Our return policy for purchased merchandise:
+            </p>
+            <ul className="list-disc list-inside text-gray-700 mb-4">
+                <li>All sales are final for liquidation, auction, and clearance items</li>
+                <li>Damaged items must be reported within 48 hours of receipt</li>
+                <li>Returns may be subject to restocking fees</li>
+                <li>Original receipt or proof of purchase is required for all returns and exchanges</li>
+            </ul>
+
+            <h2 className="font-playfair text-3xl md:text-4xl mb-4">8. Updates to These Terms</h2>
+            <p className="text-gray-700 mb-4">
+                We may update these Terms and Conditions periodically. Changes will be posted on this page with an updated <strong>&quot;Effective Date.&quot;</strong> Your continued use of our services after such modifications will constitute your acknowledgment and acceptance of the modified terms.
+            </p>
+
+            <h2 className="font-playfair text-3xl md:text-4xl mb-4">9. Contact Us</h2>
+            <p className="text-gray-700 mb-4">
+                For questions or concerns regarding these Terms and Conditions, contact us at:
+            </p>
+
+            <p className="text-gray-700 mb-4">
+                📍 <strong>Global Liquidation Company</strong><br />
+                San Clemente & Pasadena, California, USA<br />
+                📧 <strong><a href="mailto:glcrugs@gmail.com" className="text-blue-500">glcrugs@gmail.com</a></strong><br />
+                📞 <strong><a href="tel:+18889004452" className="text-blue-500">+1-888-900-4452</a></strong>
+            </p>
+            <p className="text-gray-700 mb-4">
+                Global Liquidation Company is NOT going out of business or downsizing! In fact, we are growing faster than we anticipated.
+
+                We are closing both of our locations, moving our famous private collections to a new mega location, and consolidating our shops. After nearly three decades, we are closing our two Pasadena shops. The new address and additional details will be announced to the general public soon!
+            </p>
+        </div>
+    );
+};
+
+export default TermsAndConditions;
+
+===============================================
+FILE: ./app/page.js
+===============================================
+
+// src/app/page.jsx
+import HeroCarousel from '@/components/home/HeroCarousel';
+import ServiceCategories from '@/components/home/ServiceCategories';
+import PrivateCollection from '@/components/home/PrivateCollection';
+import HeirloomRugs from '@/components/home/HeirloomRugs';
+import DiscoverItems from '@/components/home/DiscoverItems';
+import DiscoverBanner from '@/components/shared/DiscoverBanner';
+import Testimonials from '@/components/home/Testimonials';
+import Locations from '@/components/shared/Locations';
+
+export default function HomePage() {
+  return (
+    <main>
+      <HeroCarousel />
+      <PrivateCollection />
+      <ServiceCategories />
+      <HeirloomRugs />
+      <DiscoverItems />
+      <Testimonials />
+      
+      <DiscoverBanner 
+        text="Discover the Perfect Piece to Elevate Your Living Space or Find a Unique Treasure to Add to Your Collection"
+        backgroundImage="/images/discover-bg.jpg"
+      />
+
+      <Locations />
+    </main>
+  );
+}
+
+
+===============================================
+FILE: ./app/privacy/page.js
+===============================================
+
+"use client"
+
+import React from 'react';
+
+const PrivacyPolicy = () => {
+  return (
+    <div className="container mx-auto px-4 py-16 mt-16">
+      <h1 className="font-playfair text-4xl md:text-5xl mb-8">Privacy Policy</h1>
+      <p className="text-gray-700 mb-4"><strong>Effective Date:</strong> [Insert Date]</p>
+      <p className="text-gray-700 mb-4">
+        <strong>Global Liquidation Company</strong> (“Company,” “we,” “us,” or “our”) is committed to protecting your privacy. This Privacy Policy describes how we collect, use, disclose, and safeguard your information when you visit our website <a href="https://www.globalliquidationcompany.com" className="text-blue-500">https://www.globalliquidationcompany.com</a> (the “Site”) and when you engage with our auction and sales services.
+      </p>
+      <p className="text-gray-700 mb-4">
+        By using our Site or participating in our auctions, you agree to the collection and use of information in accordance with this Privacy Policy.
+      </p>
+
+      <h2 className="font-playfair text-3xl md:text-4xl mb-4">1. Information We Collect</h2>
+      <p className="text-gray-700 mb-4">We collect the following types of information:</p>
+
+      <h3 className="font-playfair text-2xl md:text-3xl mb-2">A. Personal Information</h3>
+      <p className="text-gray-700 mb-4">
+        When you register for an auction, make a purchase, or contact us, we may collect personal details, including but not limited to:
+      </p>
+      <ul className="list-disc list-inside text-gray-700 mb-4">
+        <li>Name</li>
+        <li>Email address</li>
+        <li>Phone number</li>
+        <li>Mailing address</li>
+        <li>Billing and payment information</li>
+        <li>Government-issued ID (for high-value auctions or compliance purposes)</li>
+      </ul>
+
+      <h3 className="font-playfair text-2xl md:text-3xl mb-2">B. Non-Personal Information</h3>
+      <p className="text-gray-700 mb-4">
+        We may automatically collect certain non-personal data, including:
+      </p>
+      <ul className="list-disc list-inside text-gray-700 mb-4">
+        <li>IP address</li>
+        <li>Browser type and device information</li>
+        <li>Browsing activity on our Site</li>
+        <li>Auction participation history</li>
+      </ul>
+
+      <h3 className="font-playfair text-2xl md:text-3xl mb-2">C. Cookies and Tracking Technologies</h3>
+      <p className="text-gray-700 mb-4">
+        We use cookies and similar tracking technologies to enhance user experience and analyze website performance. You can control cookie preferences through your browser settings.
+      </p>
+
+      <h2 className="font-playfair text-3xl md:text-4xl mb-4">2. How We Use Your Information</h2>
+      <p className="text-gray-700 mb-4">We use the collected information for purposes including:</p>
+      <ul className="list-disc list-inside text-gray-700 mb-4">
+        <li>Registering and verifying auction participants</li>
+        <li>Processing bids and purchases</li>
+        <li>Providing customer support</li>
+        <li>Sending auction updates, promotional offers, and newsletters (opt-out available)</li>
+        <li>Fraud prevention and legal compliance</li>
+        <li>Improving our website and services</li>
+      </ul>
+
+      <h2 className="font-playfair text-3xl md:text-4xl mb-4">3. How We Share Your Information</h2>
+      <p className="text-gray-700 mb-4">
+        We do not sell or rent your personal information. However, we may share it in the following cases:
+      </p>
+      <ul className="list-disc list-inside text-gray-700 mb-4">
+        <li><strong>Service Providers:</strong> Payment processors, auction platforms, shipping carriers, and marketing services.</li>
+        <li><strong>Legal Compliance:</strong> If required by law, court order, or law enforcement request.</li>
+        <li><strong>Business Transfers:</strong> In case of a merger, acquisition, or asset sale, your data may be transferred to a new entity.</li>
+      </ul>
+
+      <h2 className="font-playfair text-3xl md:text-4xl mb-4">4. Data Security</h2>
+      <p className="text-gray-700 mb-4">
+        We implement industry-standard security measures to protect your personal information. However, no online platform can guarantee absolute security. You are responsible for maintaining the confidentiality of your account credentials.
+      </p>
+
+      <h2 className="font-playfair text-3xl md:text-4xl mb-4">5. Your Rights and Choices</h2>
+      <p className="text-gray-700 mb-4">
+        Depending on your location, you may have the right to:
+      </p>
+      <ul className="list-disc list-inside text-gray-700 mb-4">
+        <li>Access, update, or delete your personal information</li>
+        <li>Opt out of marketing communications</li>
+        <li>Restrict certain data processing activities</li>
+        <li>Request a copy of your personal data</li>
+      </ul>
+      <p className="text-gray-700 mb-4">
+        To exercise these rights, please contact us at <strong>[glcrugs@gmail.com]</strong>.
+      </p>
+
+      <h2 className="font-playfair text-3xl md:text-4xl mb-4">6. Third-Party Links</h2>
+      <p className="text-gray-700 mb-4">
+        Our Site may contain links to third-party websites (e.g., auction platforms or social media). We are not responsible for their privacy practices. Please review their policies before providing any personal data.
+      </p>
+
+      <h2 className="font-playfair text-3xl md:text-4xl mb-4">7. Children&apos;s Privacy</h2>
+      <p className="text-gray-700 mb-4">
+        Our services are not directed to individuals under the age of 18. We do not knowingly collect information from minors.
+      </p>
+
+      <h2 className="font-playfair text-3xl md:text-4xl mb-4">8. Updates to This Policy</h2>
+      <p className="text-gray-700 mb-4">
+        We may update this Privacy Policy periodically. Changes will be posted on this page with an updated <strong>“Effective Date.”</strong>
+      </p>
+
+      <h2 className="font-playfair text-3xl md:text-4xl mb-4">9. Contact Us</h2>
+      <p className="text-gray-700 mb-4">
+        For questions or concerns regarding this Privacy Policy, contact us at:
+      </p>
+      <p className="text-gray-700 mb-4">
+        📍 <strong>Global Liquidation Company</strong><br />
+        San Clemente & Pasadena, California, USA<br />
+        📧 <strong><a href="mailto:glcrugs@gmail.com" className="text-blue-500">glcrugs@gmail.com</a></strong><br />
+        📞 <strong><a href="tel:+18889004452" className="text-blue-500">+1-888-900-4452</a></strong>
+      </p>
+    </div>
+  );
+};
+
+export default PrivacyPolicy;
+
+===============================================
+FILE: ./app/sitemap.xml/route.js
+===============================================
+
+// /app/sitemap.xml/route.js
+import { NextResponse } from "next/server";
+
+export async function GET() {
+  const siteUrl = "https://globalliquidationcompany.com"; // Change to your domain
+
+  // Define static pages
+  const staticPages = [
+    "",
+    "about",
+    "art-antiques",
+    "art-antiques/gallery",
+    "auctions",
+    "contact",
+    "liquidations",
+    "liquidations/estate-items",
+    "locations",
+    "locations/pasadena",
+    "locations/san-clemente",
+    "rugs",
+    "rugs/appraisal",
+    "rugs/cleaning-restoration",
+    "rugs/gallery",
+    "rugs/we-buy-rugs",
+  ];
+
+  // Generate XML
+  const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
+  <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    ${staticPages
+      .map(
+        (path) => `
+      <url>
+        <loc>${siteUrl}/${path}</loc>
+        <lastmod>${new Date().toISOString()}</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.7</priority>
+      </url>`
+      )
+      .join("")}
+  </urlset>`;
+
+  return new NextResponse(sitemap, {
+    headers: {
+      "Content-Type": "application/xml",
+    },
+  });
+}
+
+
+===============================================
+FILE: ./components/about/AboutContent.js
+===============================================
+
+// src/components/about/AboutContent.js
+
+"use client";
+
+import React from 'react';
+import Image from 'next/image';
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+
+const AboutContent = () => {
+  return (
+    <>
+      {/* Heritage Section */}
+      <div className="bg-background-dark text-white py-16">
+        <div className="container mx-auto px-4 text-center max-w-4xl">
+          <h2 className="font-playfair text-4xl md:text-5xl mb-8">
+            Preserving Heritage,<br/>Creating Legacies
+          </h2>
+          <p className="text-lg leading-relaxed mb-8">
+            Global Liquidation Company was established nearly five decades ago. We have antique rugs collected from as far 
+            back as 1828. We have been in business for four generations with stores in 22 states in addition to South America, 
+            Europe, and the Far East. Our company has a worldwide reputation with a unique and successful business model. We 
+            strive to uphold honesty, integrity, and fair prices continually. Our reputable company liquidates and auctions some 
+            of the most diversified antique inventory in the world, including rare Persian and Oriental rugs.
+          </p>
+          <Link href="/contact">
+            <Button className="bg-primary hover:bg-primary-dark">
+              CONTACT US
+            </Button>
+          </Link>
+        </div>
+      </div>
+
+      {/* Possibilities Section */}
+      <div className="py-16">
+        <div className="container mx-auto px-4">
+          <div className="flex flex-col md:flex-row items-center gap-12">
+            <div className="md:w-1/2">
+              <div className="relative aspect-square">
+                <Image
+                  src="/images/about/Global-Liquidation-Company-889636870.jpg"
+                  alt="Antique rug artistry"
+                  fill
+                  className="object-cover rounded-lg"
+                />
+              </div>
+            </div>
+            <div className="md:w-1/2">
+              <h2 className="font-playfair text-3xl md:text-4xl mb-6">
+                A World of<br/>Possibilities Awaits
+              </h2>
+              <p className="text-lg leading-relaxed">
+                Contact us today to embark on a journey through history, and let our 
+                knowledgeable and passionate team guide you in selecting the perfect 
+                masterpiece that will evoke wonder and admiration in your space. Welcome 
+                to Global Liquidation Company, where the past intertwines with the present, 
+                and extraordinary legacies are born.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};
+
+export default AboutContent;
+
+===============================================
+FILE: ./components/blogs/writePage.module.css
+===============================================
+
+.container{
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .select{
+    margin-bottom: 50px;
+    padding: 10px 20px;
+    margin-left: 50px;
+    width: max-content;
+  }
+  
+  .editor {
+    display: flex;
+    gap: 20px;
+    height: 700px;
+    position: relative;
+  }
+  
+  .button,
+  .addButton {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background-color: transparent;
+    border: 1px solid var(--textColor);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+  
+  .addButton {
+    border-color: #1a8917;
+  }
+  
+  .add {
+    display: flex;
+    gap: 20px;
+    background-color: var(--bg);
+    position: absolute;
+    z-index: 999;
+    width: 100%;
+    left: 50px;
+  }
+  
+  .input{
+    padding: 50px;
+    font-size: 64px;
+    border: none;
+    outline: none;
+    background-color: transparent;
+    color: var(--textColor);
+  }
+  
+  .input::placeholder{
+    color: #b3b3b1;
+  }
+  
+  .textArea {
+    width: 100%;
+  }
+  
+  .publish{
+    top: 0px;
+    right: 0px;
+    padding: 10px 20px;
+    border: none;
+    background-color: #1a8917;
+    color: white;
+    cursor: pointer;
+    border-radius: 20px;
+  }
+
+===============================================
+FILE: ./components/loaders/loader-full.css
+===============================================
+
+/* From Uiverse.io by G4b413l */ 
+.three-body {
+    --uib-size: 35px;
+    --uib-speed: 0.8s;
+    --uib-color: #5D3FD3;
+    
+    position: relative;
+    display: inline-block;
+    height: var(--uib-size);
+    width: var(--uib-size);
+    animation: spin78236 calc(var(--uib-speed) * 2.5) infinite linear;
+   }
+   
+   .three-body__dot {
+    position: absolute;
+    height: 100%;
+    width: 30%;
+   }
+   
+   .three-body__dot:after {
+    content: '';
+    position: absolute;
+    height: 0%;
+    width: 100%;
+    padding-bottom: 100%;
+    background-color: var(--uib-color);
+    border-radius: 50%;
+   }
+   
+   .three-body__dot:nth-child(1) {
+    bottom: 5%;
+    left: 0;
+    transform: rotate(60deg);
+    transform-origin: 50% 85%;
+   }
+   
+   .three-body__dot:nth-child(1)::after {
+    bottom: 0;
+    left: 0;
+    animation: wobble1 var(--uib-speed) infinite ease-in-out;
+    animation-delay: calc(var(--uib-speed) * -0.3);
+   }
+   
+   .three-body__dot:nth-child(2) {
+    bottom: 5%;
+    right: 0;
+    transform: rotate(-60deg);
+    transform-origin: 50% 85%;
+   }
+   
+   .three-body__dot:nth-child(2)::after {
+    bottom: 0;
+    left: 0;
+    animation: wobble1 var(--uib-speed) infinite
+       calc(var(--uib-speed) * -0.15) ease-in-out;
+   }
+   
+   .three-body__dot:nth-child(3) {
+    bottom: -5%;
+    left: 0;
+    transform: translateX(116.666%);
+   }
+   
+   .three-body__dot:nth-child(3)::after {
+    top: 0;
+    left: 0;
+    animation: wobble2 var(--uib-speed) infinite ease-in-out;
+   }
+   
+   @keyframes spin78236 {
+    0% {
+     transform: rotate(0deg);
+    }
+   
+    100% {
+     transform: rotate(360deg);
+    }
+   }
+   
+   @keyframes wobble1 {
+    0%,
+     100% {
+     transform: translateY(0%) scale(1);
+     opacity: 1;
+    }
+   
+    50% {
+     transform: translateY(-66%) scale(0.65);
+     opacity: 0.8;
+    }
+   }
+   
+   @keyframes wobble2 {
+    0%,
+     100% {
+     transform: translateY(0%) scale(1);
+     opacity: 1;
+    }
+   
+    50% {
+     transform: translateY(66%) scale(0.65);
+     opacity: 0.8;
+    }
+   }
+   
+
+===============================================
+FILE: ./constants/navigation.js
+===============================================
+
+// src/constants/navigation.js
+
+// src/constants/navigation.js
+
+// Main Navigation Structure
+export const MAIN_NAV = [
+  {
+    title: "LIQUIDATIONS",
+    href: "/liquidations",
+    children: [
+      { title: "SHOP CURRENT LIQUIDATIONS", href: "/liquidations/current" },
+      { title: "PAST LIQUIDATIONS", href: "/auctions/past-liquidations" },
+    ],
+  },
+  {
+    title: "AUCTIONS",
+    href: "/auctions",
+    children: [
+      // { title: "CURRENT AUCTIONS", href: "/auctions" },
+      { title: "REGISTER FOR FUTURE AUCTIONS", href: "/auctions/register" },
+      { title: "PAST AUCTIONS", href: "/auctions/past-auctions" },
+      { title: "GALLERY", href: "/auctions/gallery" },
+    ],
+  },
+  {
+    title: "RARE RUGS",
+    href: "/rugs",
+    children: [
+      { title: "RUG APPRAISAL", href: "/rugs/appraisal" },
+      { title: "RUG CLEANING & RESTORATION", href: "/rugs/cleaning-restoration" },
+      { title: "GALLERY", href: "/rugs/gallery" },
+    ],
+  },
+  {
+    title: "ART AND ANTIQUES",
+    href: "/art-antiques",
+    children: [
+      { title: "ART APPRAISAL", href: "/art-antiques/appraisal" },
+      { title: "RESTORATION SERVICES", href: "/art-antiques/restoration" },
+      { title: "GALLERY", href: "/art-antiques/gallery" },
+    ],
+  },
+  {
+    title: "SHOWROOM LOCATIONS",
+    href: "/locations",
+    children: [
+      { title: "PASADENA - GLC ANTIQUES | RUGS | AUCTIONS & GLOBAL LIQUIDATIONS", href: "/locations/pasadena" },
+      { title: "SAN CLEMENTE - GLC RUG OUTLET", href: "/locations/san-clemente" },
+      // { title: "VIRTUAL TOUR", href: "/locations/virtual-tour" },
+    ],
+  },
+  { title: "ABOUT US", href: "/about" },
+  { title: "BLOG", href: "/blog" },
+  { title: "CONTACT US", href: "/contact" },
+  {
+    title: "WE BUY",
+    href: "/we-buy",
+    children: [
+      { title: "LIQUIDATE YOUR ESTATE ITEMS", href: "/liquidations/estate-items" },
+      { title: "WE BUY RUGS", href: "/rugs/we-buy-rugs" },
+      { title: "WE BUY ART", href: "/art-antiques/we-buy-art" },
+    ],
+  },
+];
+
+// Contact Information
+export const CONTACT_INFO = {
+  mainLocation: {
+    title: "Global Liquidation Company",
+    subtitle: "Art | Antiques | Rugs | Auctions",
+    email: "info@GLCAuctions.com",
+    phones: ["626-744-0404", "888-900-4452"],
+  },
+  rugOutlet: {
+    title: "GLC Rug Outlet",
+    subtitle: "Biggest Rug Collection in America",
+    phones: ["949-364-6425", "888-900-4452"],
+  },
+};
+
+// Social Media Links
+export const SOCIAL_LINKS = [
+  { platform: "Facebook", url: "https://facebook.com/globalliquidationcompany", icon: "facebook" },
+  { platform: "Instagram", url: "https://instagram.com/globalliquidationcompany", icon: "instagram" },
+  { platform: "Google Business", url: "#", icon: "google" },
+  { platform: "WhatsApp", url: "#", icon: "whatsapp" },
+];
+
+// Footer Quick Links
+export const FOOTER_LINKS = [
+  { title: "Home", href: "/" },
+  { title: "Liquidations", href: "/liquidations" },
+  { title: "Auctions", href: "/auctions" },
+  { title: "RARE RUGS", href: "/rugs" },
+  { title: "Art and Antiques", href: "/art-antiques" },
+  { title: "Showroom Locations", href: "/locations" },
+  { title: "About Us", href: "/about" },
+  { title: "Blog", href: "/blog" },
+  { title: "Contact Us", href: "/contact" },
+  { title: "We Buy", href: "/we-buy" },
+];
+
+// Legal Links
+export const LEGAL_LINKS = [
+  { title: "Privacy Policy", href: "/privacy-policy" },
+  { title: "Legal &amp; Discliamer", href: "/legal" },
+  // { title: "Sitemap", href: "/sitemap" },
+  // { title: "Accessibility Statement", href: "/accessibility" },
+];
+
+// Company Information
+export const COMPANY_INFO = {
+  name: "Global Liquidation Company",
+  tagline: "Art | Antiques | Rugs | Auctions",
+  copyright: "© 2025 Global Liquidation Company. All Rights Reserved.",
+  contactText: "Feel free to contact us at any time with questions or inquiries.",
+};
+
+// Route Paths (for programmatic usage)
+export const ROUTES = {
+  HOME: "/",
+  WE_BUY: {
+    ROOT: "/we-buy",
+    ESTATE_ITEMS: "/liquidations/estate-items",
+    RUGS: "/rugs/we-buy-rugs",
+    ART: "/art-antiques/we-buy-art",
+  },
+  LIQUIDATIONS: {
+    ROOT: "/liquidations",
+    CURRENT: "/liquidations/current",
+    PAST_LIQUIDATIONS: "/auctions/past-liquidations",
+  },
+  AUCTIONS: {
+    ROOT: "/auctions",
+    REGISTER: "/auctions/register",
+    PAST: "/auctions/past-auctions",
+    GALLERY: "/auctions/gallery",
+  },
+  RUGS: {
+    ROOT: "/rugs",
+    SHOP: "/rugs/shop",
+    APPRAISAL: "/rugs/appraisal",
+    CLEANING: "/rugs/cleaning-restoration",
+    GALLERY: "/rugs/gallery",
+  },
+  ART_ANTIQUES: {
+    ROOT: "/art-antiques",
+    SHOP: "/art-antiques/shop",
+    APPRAISAL: "/art-antiques/appraisal",
+    RESTORATION: "/art-antiques/restoration",
+    GALLERY: "/art-antiques/gallery",
+  },
+  LOCATIONS: {
+    ROOT: "/locations",
+    PASADENA: "/locations/pasadena",
+    SAN_CLEMENTE: "/locations/san-clemente",
+    // VIRTUAL_TOUR: "/locations/virtual-tour",
+  },
+  ABOUT: "/about",
+  BLOG: {
+    ROOT: "/blog",
+    ARTICLE1: "/blog/article1",
+  },
+  CONTACT: "/contact",
+  LEGAL: {
+    PRIVACY: "/privacy-policy",
+    TERMS: "/legal",
+    SITEMAP: "/sitemap",
+    ACCESSIBILITY: "/accessibility",
+  },
+};
+
+// // src/constants/navigation.js
+
+// // Main Navigation Structure
+// export const MAIN_NAV = [
+//   {
+//     title: "LIQUIDATIONS",
+//     href: "/liquidations",
+//     children: [
+//       { title: "SHOP CURRENT LIQUIDATIONS", href: "/liquidations/current" },
+//       { title: "LIQUIDATE YOUR ESTATE ITEMS", href: "/liquidations/estate-items" },
+//       { title: "PAST LIQUIDATIONS", href: "/auctions/past-liquidations" },
+//     ],
+//   },
+//   {
+//     title: "AUCTIONS",
+//     href: "/auctions",
+//     children: [
+//       // { title: "CURRENT AUCTIONS", href: "/auctions" },
+//       { title: "REGISTER FOR FUTURE AUCTIONS", href: "/auctions/register" },
+//       { title: "PAST AUCTIONS", href: "/auctions/past-auctions" },
+//       { title: "GALLERY", href: "/auctions/gallery" },
+
+//     ],
+//   },
+//   {
+//     title: "RARE RUGS",
+//     href: "/rugs",
+//     children: [
+//       { title: "WE BUY RUGS", href: "/rugs/we-buy-rugs" },
+//       { title: "RUG APPRAISAL", href: "/rugs/appraisal" },
+//       { title: "RUG CLEANING & RESTORATION", href: "/rugs/cleaning-restoration" },
+//       { title: "GALLERY", href: "/rugs/gallery" },
+//     ],
+//   },
+//   {
+//     title: "ART AND ANTIQUES",
+//     href: "/art-antiques",
+//     children: [
+//       { title: "WE BUY ART", href: "/art-antiques/we-buy-art" },
+//       { title: "ART APPRAISAL", href: "/art-antiques/appraisal" },
+//       { title: "RESTORATION SERVICES", href: "/art-antiques/restoration" },
+//       { title: "GALLERY", href: "/art-antiques/gallery" },
+//     ],
+//   },
+//   {
+//     title: "SHOWROOM LOCATIONS",
+//     href: "/locations",
+//     children: [
+//       { title: "PASADENA - GLC ANTIQUES | RUGS | AUCTIONS & GLOBAL LIQUIDATIONS", href: "/locations/pasadena" },
+//       { title: "SAN CLEMENTE - GLC RUG OUTLET", href: "/locations/san-clemente" },
+//       // { title: "VIRTUAL TOUR", href: "/locations/virtual-tour" },
+//     ],
+//   },
+//   { title: "ABOUT US", href: "/about" },
+//   { title: "BLOG", href: "/blog" },
+//   { title: "CONTACT US", href: "/contact" },
+// ];
+
+// // Contact Information
+// export const CONTACT_INFO = {
+//   mainLocation: {
+//     title: "Global Liquidation Company",
+//     subtitle: "Art | Antiques | Rugs | Auctions",
+//     email: "info@GLCAuctions.com",
+//     phones: ["626-744-0404", "888-900-4452"],
+//   },
+//   rugOutlet: {
+//     title: "GLC Rug Outlet",
+//     subtitle: "Biggest Rug Collection in America",
+//     phones: ["949-364-6425", "888-900-4452"],
+//   },
+// };
+
+// // Social Media Links
+// export const SOCIAL_LINKS = [
+//   { platform: "Facebook", url: "https://facebook.com/globalliquidationcompany", icon: "facebook" },
+//   { platform: "Instagram", url: "https://instagram.com/globalliquidationcompany", icon: "instagram" },
+//   { platform: "Google Business", url: "#", icon: "google" },
+//   { platform: "WhatsApp", url: "#", icon: "whatsapp" },
+// ];
+
+// // Footer Quick Links
+// export const FOOTER_LINKS = [
+//   { title: "Home", href: "/" },
+//   { title: "Liquidations", href: "/liquidations" },
+//   { title: "Auctions", href: "/auctions" },
+//   { title: "RARE RUGS", href: "/rugs" },
+//   { title: "Art and Antiques", href: "/art-antiques" },
+//   { title: "Showroom Locations", href: "/locations" },
+//   { title: "About Us", href: "/about" },
+//   { title: "Blog", href: "/blog" },
+//   { title: "Contact Us", href: "/contact" },
+// ];
+
+// // Legal Links
+// export const LEGAL_LINKS = [
+//   { title: "Privacy Policy", href: "/privacy-policy" },
+//   { title: "Legal &amp; Discliamer", href: "/legal" },
+//   // { title: "Sitemap", href: "/sitemap" },
+//   // { title: "Accessibility Statement", href: "/accessibility" },
+// ];
+
+// // Company Information
+// export const COMPANY_INFO = {
+//   name: "Global Liquidation Company",
+//   tagline: "Art | Antiques | Rugs | Auctions",
+//   copyright: "© 2025 Global Liquidation Company. All Rights Reserved.",
+//   contactText: "Feel free to contact us at any time with questions or inquiries.",
+// };
+
+// // Route Paths (for programmatic usage)
+// export const ROUTES = {
+//   HOME: "/",
+//   LIQUIDATIONS: {
+//     ROOT: "/liquidations",
+//     CURRENT: "/liquidations/current",
+//     ESTATE: "/liquidations/estate-items",
+//     PAST_LIQUIDATIONS: "/auctions/past-liquidations",
+//   },
+//   AUCTIONS: {
+//     ROOT: "/auctions",
+//     REGISTER: "/auctions/register",
+//     PAST: "/auctions/past-auctions",
+//     GALLERY: "/auctions/gallery",
+//   },
+//   RUGS: {
+//     ROOT: "/rugs",
+//     BUY: "/rugs/we-buy-rugs",
+//     APPRAISAL: "/rugs/appraisal",
+//     CLEANING: "/rugs/cleaning-restoration",
+//     GALLERY: "/rugs/gallery",
+//   },
+//   ART_ANTIQUES: {
+//     ROOT: "/art-antiques",
+//     BUY: "/art-antiques/we-buy-art",
+//     APPRAISAL: "/art-antiques/appraisal",
+//     RESTORATION: "/art-antiques/restoration",
+//     GALLERY: "/art-antiques/gallery",
+//   },
+//   LOCATIONS: {
+//     ROOT: "/locations",
+//     PASADENA: "/locations/pasadena",
+//     SAN_CLEMENTE: "/locations/san-clemente",
+//     // VIRTUAL_TOUR: "/locations/virtual-tour",
+//   },
+//   ABOUT: "/about",
+//   BLOG: {
+//     ROOT: "/blog",
+//     ARTICLE1: "/blog/article1",
+//   },
+//   CONTACT: "/contact",
+//   LEGAL: {
+//     PRIVACY: "/privacy-policy",
+//     TERMS: "/legal",
+//     SITEMAP: "/sitemap",
+//     ACCESSIBILITY: "/accessibility",
+//   },
+// };
+
+// // src/constants/navigation.js
+
+// // Main Navigation Structure
+// export const MAIN_NAV = [
+//     {
+//       title: "LIQUIDATIONS",
+//       href: "/liquidations",
+//       children: [
+//         { title: "SHOP CURRENT LIQUIDATIONS", href: "/liquidations/current" },
+//         { title: "LIQUIDATE YOUR ESTATE ITEMS", href: "/liquidations/estate-items" },
+//       ],
+//     },
+//     { title: "AUCTIONS", href: "/auctions" },
+//     {
+//       title: "RARE RUGS",
+//       href: "/rugs",
+//       children: [
+//         { title: "WE BUY RUGS", href: "/rugs/we-buy-rugs" },
+//         { title: "RUG APPRAISAL", href: "/rugs/appraisal" },
+//         { title: "RUG CLEANING & RESTORATION", href: "/rugs/cleaning-restoration" },
+//         { title: "GALLERY", href: "/rugs/gallery" },
+//       ],
+//     },
+//     {
+//       title: "ART AND ANTIQUES",
+//       href: "/art-antiques",
+//       children: [{ title: "GALLERY", href: "/art-antiques/gallery" }],
+//     },
+//     {
+//       title: "SHOWROOM LOCATIONS",
+//       href: "/locations",
+//       children: [
+//         { title: "PASADENA - GLC ANTIQUES | RUGS | AUCTIONS & GLOBAL LIQUIDATIONS", href: "/locations/pasadena" },
+//         { title: "SAN CLEMENTE - GLC RUG OUTLET", href: "/locations/san-clemente" },
+//       ],
+//     },
+//     { title: "ABOUT US", href: "/about" },
+//     // { title: "BLOG", href: "/blog" },
+//     { title: "CONTACT US", href: "/contact" },
+//   ];
+  
+//   // Contact Information
+//   export const CONTACT_INFO = {
+//     mainLocation: {
+//       title: "Global Liquidation Company",
+//       subtitle: "Art | Antiques | Rugs | Auctions",
+//       email: "info@GLCAuctions.com",
+//       phones: ["626-744-0404", "888-900-4452"],
+//     },
+//     rugOutlet: {
+//       title: "GLC Rug Outlet",
+//       phones: ["949-364-6425", "888-900-4452"],
+//     },
+//   };
+  
+//   // Social Media Links
+//   export const SOCIAL_LINKS = [
+//     { platform: "Facebook", url: "https://facebook.com/globalliquidationcompany", icon: "facebook" },
+//     { platform: "Instagram", url: "https://instagram.com/globalliquidationcompany", icon: "instagram" },
+//     { platform: "Google Business", url: "#", icon: "google" },
+//     { platform: "WhatsApp", url: "#", icon: "whatsapp" },
+//   ];
+  
+//   // Footer Quick Links
+//   export const FOOTER_LINKS = [
+//     { title: "Home", href: "/" },
+//     { title: "Liquidations", href: "/liquidations" },
+//     { title: "Auctions", href: "/auctions" },
+//     { title: "RARE RUGS", href: "/rugs" },
+//     { title: "Art and Antiques", href: "/art-antiques" },
+//     { title: "Showroom Locations", href: "/locations" },
+//     { title: "About Us", href: "/about" },
+//     { title: "Contact Us", href: "/contact" },
+//   ];
+  
+//   // Legal Links
+//   export const LEGAL_LINKS = [
+//     { title: "Privacy Policy", href: "/privacy-policy" },
+//     { title: "Sitemap", href: "/sitemap" },
+//     { title: "Accessibility Statement", href: "/accessibility" },
+//   ];
+  
+//   // Company Information
+//   export const COMPANY_INFO = {
+//     name: "Global Liquidation Company",
+//     tagline: "Art | Antiques | Rugs | Auctions",
+//     copyright: "© 2025 Global Liquidation Company. All Rights Reserved.",
+//     contactText: "Feel free to contact us at any time with questions or inquiries.",
+//   };
+  
+//   // Route Paths (for programmatic usage)
+//   export const ROUTES = {
+//     HOME: "/",
+//     LIQUIDATIONS: {
+//       ROOT: "/liquidations",
+//       CURRENT: "/liquidations/current",
+//       ESTATE: "/liquidations/estate-items",
+//     },
+//     AUCTIONS: "/auctions",
+//     RUGS: {
+//       ROOT: "/rugs",
+//       BUY: "/rugs/we-buy-rugs",
+//       APPRAISAL: "/rugs/appraisal",
+//       CLEANING: "/rugs/cleaning-restoration",
+//       GALLERY: "/rugs/gallery",
+//     },
+//     ART_ANTIQUES: {
+//       ROOT: "/art-antiques",
+//       GALLERY: "/art-antiques/gallery",
+//     },
+//     LOCATIONS: {
+//       ROOT: "/locations",
+//       PASADENA: "/locations/pasadena",
+//       SAN_CLEMENTE: "/locations/san-clemente",
+//       VIRTUAL_TOUR: "/locations/virtual-tour",
+//     },
+//     ABOUT: "/about",
+//     // BLOG: "/blog",
+//     CONTACT: "/contact",
+//     LEGAL: {
+//       PRIVACY: "/privacy-policy",
+//       SITEMAP: "/sitemap",
+//       ACCESSIBILITY: "/accessibility",
+//     },
+//   };
+  
+
+===============================================
+FILE: ./context/all-blogs.js
+===============================================
+
+// File: context\all-blogs.js
+"use client";
+import { createContext, useState, useEffect, useContext } from "react";
+import { getAllBlogs } from "../utils/firebase/firestore";
+
+const AllBlogsContext = createContext();
+
+export const AllBlogProvider = ({ children }) => {
+    const [allBlogs, setAllBlogs] = useState([]);
+    const [allBlogsLoading, setAllBlogsLoading] = useState(true);
+    const [allBlogsError, setAllBlogsError] = useState(null);
+
+    const fetchAllBlogs = async () => {
+        try {
+            setAllBlogsLoading(true);
+            const result = await getAllBlogs();
+            if (result.status) {
+                setAllBlogs(result.blogs);
+                setAllBlogsError(null);
+            } else {
+                setAllBlogsError(result.message);
+            }
+        } catch (e) {
+            setAllBlogsError(e.message);
+        } finally {
+            setAllBlogsLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchAllBlogs();
+    }, []);
+
+    return (
+        <AllBlogsContext.Provider
+            value={{
+                allBlogs,
+                setAllBlogs,
+                allBlogsLoading,
+                allBlogsError,
+                refreshBlogs: fetchAllBlogs
+            }}
+        >
+            {children}
+        </AllBlogsContext.Provider>
+    );
+};
+
+export const useAllBlogContext = () => useContext(AllBlogsContext);
+
+===============================================
+FILE: ./lib/firebase.js
+===============================================
+
+// src/lib/firebase.js
+
+import { initializeApp, getApps } from "firebase/app";
+import { getStorage } from "firebase/storage";
+import { getAnalytics } from "firebase/analytics";
+
+const firebaseConfig = {
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
+};
+
+// Initialize Firebase
+let firebaseApp;
+let analytics;
+let storage;
+
+if (!getApps().length) {
+  firebaseApp = initializeApp(firebaseConfig);
+  // Only initialize analytics on the client side
+  if (typeof window !== 'undefined') {
+    analytics = getAnalytics(firebaseApp);
+  }
+  storage = getStorage(firebaseApp);
+}
+
+export { firebaseApp, storage, analytics };
+
+===============================================
+FILE: ./lib/firebaseService.js
+===============================================
+
+import { initializeApp, getApps, getApp } from "firebase/app";
+import { getFirestore, collection, addDoc } from "firebase/firestore";
+import { getStorage, ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+import { v4 as uuidv4 } from "uuid";
+
+const firebaseConfig = {
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID
+};
+
+const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const storage = getStorage(app);
+
+export const saveContactForm = async (formData) => {
+  try {
+    const docRef = await addDoc(collection(db, "contact_forms"), formData);
+    return docRef.id;
+  } catch (error) {
+    console.error("Error saving form:", error);
+    throw new Error("Failed to save form data.");
+  }
+};
+
+export const saveAuctionRegistration = async (registrationData) => {
+  try {
+    const docRef = await addDoc(collection(db, "auction_registrations"), registrationData);
+    return docRef.id;
+  } catch (error) {
+    console.error("Error saving auction registration:", error);
+    throw new Error("Failed to save registration data.");
+  }
+};
+
+export const uploadFile = async (file, folder = "contact-uploads") => {
+  try {
+    const fileId = uuidv4();
+    const fileName = `${fileId}-${file.name}`;
+    const storageRef = ref(storage, `${folder}/${fileName}`);
+    
+    const uploadTask = uploadBytesResumable(storageRef, file);
+    
+    return new Promise((resolve, reject) => {
+      uploadTask.on(
+        'state_changed',
+        (snapshot) => {
+          // Optional: Handle progress updates
+          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+          console.log(`Upload progress: ${progress}%`);
+        },
+        (error) => {
+          reject(error);
+        },
+        async () => {
+          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+          resolve({
+            name: file.name,
+            size: file.size,
+            type: file.type,
+            url: downloadURL,
+            path: storageRef.fullPath
+          });
+        }
+      );
+    });
+  } catch (error) {
+    console.error("Error uploading file:", error);
+    throw new Error("Failed to upload file.");
+  }
+};
+
+export const uploadFiles = async (files, folder = "contact-uploads") => {
+  if (!files || files.length === 0) return [];
+  
+  try {
+    const uploadPromises = files.map(file => uploadFile(file, folder));
+    return await Promise.all(uploadPromises);
+  } catch (error) {
+    console.error("Error uploading files:", error);
+    throw new Error("Failed to upload one or more files.");
+  }
+};
+
+===============================================
+FILE: ./lib/utils.js
+===============================================
+
+// src/lib/utils.js
+import clsx from 'clsx';
+import { twMerge } from 'tailwind-merge';
+
+export function cn(...inputs) {
+  return twMerge(clsx(inputs));
+}
+
+
+===============================================
+FILE: ./styles/theme.js
+===============================================
+
+// src/styles/theme.js
+export const theme = {
+  fonts: {
+    dosis: 'var(--font-dosis)',
+    playfair: 'var(--font-playfair)',
+    karla: 'var(--font-karla)',
+  },
+  colors: {
+    primary: 'rgb(var(--color-primary) / <alpha-value>)',
+    black: 'rgb(var(--color-black) / <alpha-value>)',
+    backgroundDark: 'rgb(var(--color-background-dark) / <alpha-value>)',
+    backgroundLight: 'rgb(var(--color-background-light) / <alpha-value>)',
+  },
+};
+
+export default theme;
+
+===============================================
+FILE: ./utils/firebase/auth.js
+===============================================
+
+// File: utils\firebase\auth.js
+import { getAuth } from "firebase/auth";
+import { app } from "./config";
+
+
+const auth = getAuth(app);
+
+export default auth;
+
+===============================================
+FILE: ./utils/firebase/config.js
+===============================================
+
+// File: utils\firebase\config.js
+import { initializeApp } from "firebase/app";
+
+const firebaseConfig = {
+  apiKey: process.env.NEXT_PUBLIC_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_APP_ID,
+};
+
+export const app = initializeApp(firebaseConfig);
+
+
+===============================================
+FILE: ./utils/firebase/firestore.js
+===============================================
+
+// File: utils/firebase/firestore.js
+
+import { getFirestore, collection, setDoc, getDocs, updateDoc, doc, deleteDoc, getDoc, addDoc } from "firebase/firestore";
+import { app } from "./config";
+
+const db = getFirestore(app);
+
+// Add at the top of firestore.js
+const convertTimestamps = (data) => {
+    if (!data) return data;
+    return Object.entries(data).reduce((acc, [key, value]) => {
+      if (value?.toDate instanceof Function) {
+        acc[key] = value.toDate().toISOString();
+      } else if (value && typeof value === 'object') {
+        acc[key] = convertTimestamps(value);
+      } else {
+        acc[key] = value;
+      }
+      return acc;
+    }, {});
+  };
+
+export const addContact = async (programName, contactData) => {
+    try {
+        const docRef = doc(db, "contacts", "fEh3iTTqfT9adfg1ryoP");
+        const programCollectionRef = collection(docRef, programName.toLowerCase());
+        const querySnapshot = await getDocs(programCollectionRef);
+        const res = await addDoc(programCollectionRef, contactData);
+        return { ok: true, res };
+    } catch (error) {
+        return { ok: false, error: error.message }
+    }
+}
+
+export const deleteContact = async (programName, id) => {
+    try {
+        const docRef = doc(db, "contacts", "fEh3iTTqfT9adfg1ryoP");
+        const programCollectionRef = collection(docRef, programName);
+        const contactDocRef = doc(programCollectionRef, id);
+        console.log(contactDocRef)
+        await deleteDoc(contactDocRef);
+        return { ok: true };
+    }
+    catch (error) {
+        return { ok: false, error: error.message };
+    }
+}
+
+export const getContactsFromProgram = async (programName) => {
+    try {
+        const docRef = doc(db, "contacts", "fEh3iTTqfT9adfg1ryoP");
+        const programCollectionRef = collection(docRef, programName);
+        const programDocs = await getDocs(programCollectionRef);
+        const data = programDocs.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        return { ok: true, data }
+    } catch (error) {
+        return { ok: false, error: error.message }
+    }
+}
+
+// BLOG FUNCTIONS
+export const addBlog = async (document) => {
+    console.log('Starting blog creation:', document);
+    if (!document.slug) {
+        console.error('Blog creation failed: No slug provided');
+        return { status: false, message: "Slug is required" };
+    }
+    try {
+        const docRef = doc(db, "blogs", document.slug);
+        const blogData = {
+            ...document,
+            createdAt: new Date(),
+            updatedAt: new Date()
+        };
+        console.log('Creating blog with data:', blogData);
+        await setDoc(docRef, blogData);
+        console.log('Blog created successfully');
+        return { status: true, message: "Blog added successfully", ref: document.slug };
+    } catch (e) {
+        console.error("Error adding blog:", e);
+        return { status: false, message: "Error adding document: " + e.message };
+    }
+}
+
+// export const getAllBlogs = async () => {
+//     console.log('Fetching all blogs');
+//     try {
+//         const querySnapshot = await getDocs(collection(db, "blogs"));
+//         const blogs = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+//         console.log('Retrieved blogs count:', blogs.length);
+//         return { status: true, blogs };
+//     } catch (e) {
+//         console.error("Error getting blogs:", e);
+//         return { status: false, message: "Error getting documents: " + e.message };
+//     }
+// }
+
+export const getAllBlogs = async () => {
+    try {
+      const querySnapshot = await getDocs(collection(db, "blogs"));
+      const blogs = querySnapshot.docs.map(doc => 
+        convertTimestamps({ id: doc.id, ...doc.data() })
+      );
+      return { status: true, blogs };
+    } catch (e) {
+      return { status: false, message: "Error getting documents: " + e.message };
+    }
+  }
+
+// export const getBlogBySlug = async (slug) => {
+//     console.log('Fetching blog with slug:', slug);
+//     try {
+//         const docRef = doc(db, "blogs", slug);
+//         const docSnap = await getDoc(docRef);
+//         if (docSnap.exists()) {
+//             console.log('Blog found:', docSnap.id);
+//             return { status: true, blog: { id: docSnap.id, ...docSnap.data() } };
+//         } else {
+//             console.log('No blog found with slug:', slug);
+//             return { status: false, message: "No blog post found with this slug!" };
+//         }
+//     } catch (error) {
+//         console.error("Error getting blog:", error);
+//         return { status: false, message: "Error getting blog post: " + error.message };
+//     }
+// }
+export const getBlogBySlug = async (slug) => {
+    try {
+      const docRef = doc(db, "blogs", slug);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        return { 
+          status: true, 
+          blog: convertTimestamps({ id: docSnap.id, ...docSnap.data() })
+        };
+      }
+      return { status: false, message: "No blog post found with this slug!" };
+    } catch (error) {
+      return { status: false, message: "Error getting blog post: " + error.message };
+    }
+  }
+
+export const deleteBlog = async (slug) => {
+    console.log('Starting blog deletion:', slug);
+    try {
+        const docRef = doc(db, "blogs", slug);
+        await deleteDoc(docRef);
+        console.log('Blog deleted successfully');
+        return { status: true, message: "Blog deleted successfully" };
+    } catch (error) {
+        console.error('Error deleting blog:', error);
+        return { status: false, message: "Error deleting blog: " + error.message };
+    }
+}
+
+export const updateBlog = async (oldSlug, updates) => {
+    console.log('Starting blog update:', { oldSlug, updates });
+    try {
+        const oldDocRef = doc(db, "blogs", oldSlug);
+        const newSlug = updates.slug || oldSlug;
+
+        // Verify the document exists before updating
+        const docSnap = await getDoc(oldDocRef);
+        if (!docSnap.exists()) {
+            console.error('Blog not found:', oldSlug);
+            return { status: false, message: "Blog not found" };
+        }
+
+        // Prepare update data
+        const updateData = {
+            ...updates,
+            updatedAt: new Date()
+        };
+
+        console.log('Update operation details:', { oldSlug, newSlug, updateData });
+
+        if (newSlug !== oldSlug) {
+            console.log('Slug changed, creating new document');
+            const newDocRef = doc(db, "blogs", newSlug);
+            await setDoc(newDocRef, updateData);
+            await deleteDoc(oldDocRef);
+        } else {
+            console.log('Updating existing document');
+            await updateDoc(oldDocRef, updateData);
+        }
+        
+        console.log('Blog update completed successfully');
+        return { status: true, message: "Blog updated successfully" };
+    } catch (error) {
+        console.error("Error updating blog:", error);
+        return { status: false, message: "Error updating blog: " + error.message };
+    }
+}
+
+
+
+===============================================
+FILE: ./utils/firebase/getUser.js
+===============================================
+
+// File: utils\firebase\getUser.js
+import auth from "./auth";
+import { onAuthStateChanged } from "firebase/auth";
+
+export const getUser = () => {
+  return new Promise((resolve, reject) => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      unsubscribe(); // Unsubscribe immediately after getting the user state
+      if (user) {
+        // User is signed in
+        console.log(user)
+        resolve(user);
+      } else {
+        // User is signed out
+
+        resolve(null);
+      }
+    }, reject);
+  });
+};
+
+===============================================
+FILE: ./utils/firebase/login.js
+===============================================
+
+// File: utils\firebase\login.js
+import { signInWithEmailAndPassword } from "firebase/auth";
+import auth from "./auth";
+
+export const logInWithEmailAndPassword = async (email, password ) => {
+  try {
+    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+    const user = userCredential.user;
+    return user;
+  } catch (error) {
+    const errorMessage = error.message;
+    return { error: errorMessage }
+  }
+};
+
+
+===============================================
+FILE: ./utils/firebase/logout.js
+===============================================
+
+// File: utils\firebase\logout.js
+import { signOut } from "firebase/auth";
+import auth from "./auth";
+
+export const signOutUser = async () => {
+  try {
+    await signOut(auth);
+    return {
+      success: true,
+      message: "User signed out successfully",
+    };
+  } catch (error) {
+    console.error("Sign out error:", error);
+    return {
+      success: false,
+      message: error.message,
+    };
+  } 
+};
+
+===============================================
+FILE: ./utils/firebase/storage.js
+===============================================
+
+// File: utils\firebase\storage.js
+import { getStorage, ref, getDownloadURL, uploadBytes } from "firebase/storage";
+import { app } from "./config";
+
+const storage = getStorage(app);
+
+export const uploadImage = async ({ blogPath, file }) => {
+    try {
+        const storageRef = ref(storage, `blogs/${blogPath}/${file.name.replaceAll(' ', '_')}`);
+        await uploadBytes(storageRef, file);
+        const downloadURL = await getDownloadURL(storageRef);
+        return { status: true, downloadURL };
+    } catch (error) {
+        console.log(error);
+        return { status: false, error };
+    }
+}
+
+
+
+
