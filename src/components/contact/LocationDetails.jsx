@@ -20,12 +20,12 @@ const LocationDetails = () => {
                 <p className="font-dosis mt-2">📞 626-744-0404</p>
               </div>
               <div className="space-y-1">
-                <p className="font-dosis">Monday: 10:00 AM - 6:00 PM</p>
-                <p className="font-dosis">Tuesday: 10:00 AM - 6:00 PM</p>
+                <p className="font-dosis">Monday: 11:00 AM - 6:00 PM</p>
+                <p className="font-dosis">Tuesday: 11:00 AM - 6:00 PM</p>
                 <p className="font-dosis">Wednesday: (Open to Designers &amp; Dealers)</p>
-                <p className="font-dosis">Thursday: 10:00 AM - 6:00 PM</p>
-                <p className="font-dosis">Friday: 10:00 AM - 6:00 PM</p>
-                <p className="font-dosis">Saturday: 10:00 AM - 6:00 PM</p>
+                <p className="font-dosis">Thursday: 11:00 AM - 6:00 PM</p>
+                <p className="font-dosis">Friday: 11:00 AM - 6:00 PM</p>
+                <p className="font-dosis">Saturday: 11:00 AM - 6:00 PM</p>
                 <p className="font-dosis">Sunday: 11:00 AM - 4:00 PM</p>
               </div>
             </div>
