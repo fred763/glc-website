@@ -80,12 +80,12 @@ const Locations = ({
             </div>
 
             <div className="font-sans space-y-1 text-gray-700 mt-4">
-              <p>Monday: 10:00 AM - 6:00 PM</p>
-              <p>Tuesday: 10:00 AM - 6:00 PM</p>
-              <p>Wednesday: 10:00 AM - 6:00 PM</p>
-              <p>Thursday: 10:00 AM - 6:00 PM</p>
-              <p>Friday: 10:00 AM - 6:00 PM</p>
-              <p>Saturday: 10:00 AM - 6:00 PM</p>
+              <p>Monday: 11:00 AM - 6:00 PM</p>
+              <p>Tuesday: 11:00 AM - 6:00 PM</p>
+              <p>Wednesday: 11:00 AM - 6:00 PM</p>
+              <p>Thursday: 11:00 AM - 6:00 PM</p>
+              <p>Friday: 11:00 AM - 6:00 PM</p>
+              <p>Saturday: 11:00 AM - 6:00 PM</p>
               <p>Sunday: (Open to Designers &amp; Dealers)</p>
             </div>
           </div>
