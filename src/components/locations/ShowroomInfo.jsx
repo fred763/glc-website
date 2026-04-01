@@ -76,12 +76,12 @@ export default function ShowroomInfo() {
             </div>
 
             <div className="space-y-1 font-dosis">
-              <p>Monday: 10:00 AM – 6:00 PM</p>
-              <p>Tuesday: 10:00 AM – 6:00 PM</p>
-              <p>Wednesday: 10:00 AM – 6:00 PM</p>
-              <p>Thursday: 10:00 AM – 6:00 PM</p>
-              <p>Friday: 10:00 AM – 6:00 PM</p>
-              <p>Saturday: 10:00 AM – 6:00 PM</p>
+              <p>Monday: 11:00 AM – 6:00 PM</p>
+              <p>Tuesday: 11:00 AM – 6:00 PM</p>
+              <p>Wednesday: 11:00 AM – 6:00 PM</p>
+              <p>Thursday: 11:00 AM – 6:00 PM</p>
+              <p>Friday: 11:00 AM – 6:00 PM</p>
+              <p>Saturday: 11:00 AM – 6:00 PM</p>
               <p>Sunday: (Open to Designers &amp; Dealers)</p>
             </div>
           </div>
